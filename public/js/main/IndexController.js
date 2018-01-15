@@ -14,12 +14,62 @@ export default function IndexController(container) {
 IndexController.prototype._registerServiceWorker = function() {
   if (!navigator.serviceWorker) return;
 
-  navigator.serviceWorker.register('/sw.js').then(function() {
-    console.log('Registration worked!');
-  }).catch(function() {
-    console.log('Registration failed!');
+  var indexController = this;
+
+  navigator.serviceWorker.register('/sw.js').then(function(registration) {
+    // TODO: if there's no controller, this page wasn't loaded
+    // via a service worker, so they're looking at the latest version.
+    // In that case, exit early
+    if(!navigator.serviceWorker.controller){
+      return;
+    }
+    
+    
+       if (registration.waiting) {
+        //there's an update ready and waiting notify user
+        
+        indexController._updateReady(registration.waiting);
+        return;
+       }
+       if (registration.installing) {
+        //if there's a service worker installing, we want to track
+        //it's state changes, then notify user when it's ready
+         indexController._trackInstalling(registration.installing);
+         return;
+       } 
+         
+      
+       //if there isn't an installing worker, listen for updates
+       //if there is track it's installation process and notify user
+     
+      registration.addEventListener("updatefound", function(){
+        indexController._trackInstalling(registration.installing);
+      });
+
+      navigator.serviceWorker.addEventListener('controllerchange', function(){
+        console.log("about to reload");
+        window.location.reload();
+
+      });
+     
+
+  })
+  
+};
+
+IndexController.prototype._updateReady = function(worker) {
+  var toast = this._toastsView.show("New version available", {
+    buttons: ['refresh', 'dismiss']
+  });
+
+  toast.answer.then(function(answer) {
+    if (answer != 'refresh') return;
+    // TODO: tell the service worker to skipWaiting
+    console.log("message from page: ");
+    worker.postMessage("skipWaiting");
   });
 };
+
 
 // open a connection to the server for live updates
 IndexController.prototype._openSocket = function() {
@@ -71,3 +121,14 @@ IndexController.prototype._onSocketMessage = function(data) {
   var messages = JSON.parse(data);
   this._postsView.addPosts(messages);
 };
+
+IndexController.prototype._trackInstalling = function(worker){
+  var indexController = this;
+  //add listener to worker to check for state change. when it's
+  //installed go ahead and notify user
+  worker.addEventListener('statechange', function(){
+    if(worker.state == 'installed'){
+      indexController._updateReady(worker);
+    }
+  });
+}
